@@ -154,6 +154,5 @@ Addresses all 3 stated gaps:
 
 ---
 
-## 👤 Author
-Aaryan Pawar, Utkarsh Pandey
+## 👤 Author - Aaryan Pawar, Utkarsh Pandey
 Built with ❤️ using Streamlit, GPT-4o, and the ASTRAM dataset.
