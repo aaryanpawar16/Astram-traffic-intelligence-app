@@ -142,31 +142,43 @@ def call_openai(prompt: str, system: str) -> str:
 # FEATURE A — TODAY'S RISK INDEX
 # ════════════════════════════════════════════════════════════════════
 def compute_today_risk(df):
-    now = datetime.now()
+    now  = datetime.now()
     hour = now.hour
     dow  = now.strftime("%A")
-    # Hour weight (from data: peak 20-22h, early 4-7h)
-    hour_weights = {
-        range(20,23):1.0, range(4,8):0.85, range(18,20):0.75,
-        range(7,10):0.65, range(0,4):0.5,  range(23,24):0.5,
-        range(10,18):0.3,
-    }
-    hw = 0.3
-    for rng, w in hour_weights.items():
-        if hour in rng: hw = w; break
-    # Day weight
-    day_w = {"Friday":1.0,"Thursday":0.95,"Tuesday":0.92,"Saturday":0.90,
-              "Wednesday":0.88,"Sunday":0.72,"Monday":0.68}.get(dow, 0.8)
-    # Month weight
-    month_events = df["month"].value_counts()
-    month_name = now.strftime("%B")
-    month_max = month_events.max() if len(month_events) else 1
-    month_w = month_events.get(month_name, month_events.mean()) / month_max
 
-    score = round((hw*0.45 + day_w*0.35 + float(month_w)*0.20) * 100)
+    # Hour weight — derived from actual event counts in dataset
+    # Peak 20-22h (800+/hr), early 4-7h (660+/hr), valley 10-17h (<70/hr)
+    if   hour in range(20, 23): hw = 1.00
+    elif hour in range(19, 20): hw = 0.80
+    elif hour in range(18, 19): hw = 0.65
+    elif hour in range(7,  10): hw = 0.55
+    elif hour in range(4,   7): hw = 0.45
+    elif hour in range(23, 24): hw = 0.40
+    elif hour in range(0,   4): hw = 0.30
+    else:                        hw = 0.15  # 10 AM-6 PM quietest window
+
+    # Day weight — weekdays busier than weekends
+    day_w = {
+        "Friday":    1.00,
+        "Thursday":  0.92,
+        "Tuesday":   0.88,
+        "Wednesday": 0.85,
+        "Monday":    0.78,
+        "Sunday":    0.45,
+        "Saturday":  0.40,
+    }.get(dow, 0.75)
+
+    # Month weight (normalised from dataset)
+    month_events = df["month"].value_counts()
+    month_name   = now.strftime("%B")
+    month_max    = month_events.max() if len(month_events) else 1
+    month_w      = float(month_events.get(month_name, month_events.mean())) / month_max
+
+    # Composite: hour dominates (50%), day (35%), month (15%)
+    score = round((hw * 0.50 + day_w * 0.35 + month_w * 0.15) * 100)
     score = min(max(score, 5), 98)
 
-    if score >= 75:   level, color = "CRITICAL", "#ef4444"
+    if   score >= 75: level, color = "CRITICAL", "#ef4444"
     elif score >= 55: level, color = "HIGH",     "#f59e0b"
     elif score >= 35: level, color = "MEDIUM",   "#00e5ff"
     else:             level, color = "LOW",       "#10b981"
