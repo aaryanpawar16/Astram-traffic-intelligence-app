@@ -276,39 +276,55 @@ def compute_impact_simulation(df, event_type):
 # ════════════════════════════════════════════════════════════════════
 # FEATURE D — PDF REPORT GENERATOR
 # ════════════════════════════════════════════════════════════════════
+def sanitize(text):
+    """Strip all non-Latin-1 characters so fpdf Helvetica never chokes."""
+    import unicodedata
+    # Common Unicode replacements first
+    replacements = {
+        "’": "'", "‘": "'", "“": '"', "”": '"',
+        "–": "-", "—": "-", "•": "*", "→": "->",
+        "✓": "OK", "✔": "OK", "❌": "X",  "⚠": "!",
+        "✅": "OK", "❤": "<3", "➤": ">",
+        "é": "e", "è": "e", "ê": "e",
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    # Drop anything still outside Latin-1 (0x00-0xFF)
+    return text.encode("latin-1", errors="ignore").decode("latin-1")
+
+
 def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, similar_events_df, sim_data):
     pdf = FPDF()
     pdf.add_page()
 
     # Header
     pdf.set_fill_color(10, 15, 30)
-    pdf.rect(0, 0, 210, 40, 'F')
-    pdf.set_text_color(0, 229, 255)
+    pdf.rect(0, 0, 210, 40, "F")
+    pdf.set_text_color(0, 180, 220)
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_xy(10, 8)
     pdf.cell(0, 10, "ASTRAM Event Deployment Report", ln=True)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(100, 116, 139)
     pdf.set_x(10)
-    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%d %b %Y, %H:%M')}  |  Event Congestion Intelligence Platform", ln=True)
+    pdf.cell(0, 6, sanitize(
+        f"Generated: {datetime.now().strftime('%d %b %Y, %H:%M')}  |  Event Congestion Intelligence Platform"
+    ), ln=True)
 
     # Event Summary Box
-    pdf.set_y(48)
     pdf.set_fill_color(17, 24, 39)
     pdf.set_draw_color(30, 45, 74)
-    pdf.rect(10, 45, 190, 38, 'FD')
+    pdf.rect(10, 45, 190, 38, "FD")
     pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(0, 229, 255)
+    pdf.set_text_color(0, 180, 220)
     pdf.set_xy(14, 48)
     pdf.cell(0, 7, "EVENT DETAILS", ln=True)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(226, 232, 240)
     details = [
         ("Event Type", event_type or "N/A"),
-        ("Zone", zone or "N/A"),
-        ("Corridor", corridor or "N/A"),
-        ("Expected Time", time_slot or "N/A"),
-        ("Crowd Size", crowd_size or "N/A"),
+        ("Zone",       zone        or "N/A"),
+        ("Corridor",   corridor    or "N/A"),
+        ("Time",       time_slot   or "N/A"),
+        ("Crowd Size", crowd_size  or "N/A"),
     ]
     col_w = 90
     for i, (k, v) in enumerate(details):
@@ -317,20 +333,18 @@ def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, sim
         pdf.set_xy(x, y)
         pdf.set_text_color(100, 116, 139)
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(30, 5, k.upper() + ":", ln=False)
+        pdf.cell(32, 5, sanitize(k.upper() + ":"), ln=False)
         pdf.set_text_color(226, 232, 240)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(0, 5, str(v), ln=False)
+        pdf.cell(0, 5, sanitize(str(v)), ln=False)
 
     # Impact Simulation
-    pdf.set_y(90)
     pdf.set_fill_color(17, 24, 39)
-    pdf.rect(10, 88, 190, 38, 'FD')
+    pdf.rect(10, 88, 190, 40, "FD")
     pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(0, 229, 255)
+    pdf.set_text_color(0, 180, 220)
     pdf.set_xy(14, 91)
-    pdf.cell(0, 7, "IMPACT SIMULATION — WITH vs WITHOUT ASTRAM", ln=True)
-    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 7, "IMPACT SIMULATION -- WITH vs WITHOUT ASTRAM", ln=True)
     metrics_sim = [
         ("Road Closure Rate (Before)", f"{sim_data['base_closure']}%"),
         ("Road Closure Rate (After)",  f"{sim_data['proj_closure']}% (-{sim_data['closure_pct']}%)"),
@@ -339,47 +353,50 @@ def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, sim
     ]
     for i, (k, v) in enumerate(metrics_sim):
         x = 14 + (i % 2) * 95
-        y = 100 + (i // 2) * 10
+        y = 101 + (i // 2) * 10
         pdf.set_xy(x, y)
         pdf.set_text_color(100, 116, 139)
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(55, 5, k + ":", ln=False)
-        color = (16,185,129) if "After" in k else (239,68,68)
+        pdf.cell(55, 5, sanitize(k + ":"), ln=False)
+        color = (16, 185, 129) if "After" in k else (239, 68, 68)
         pdf.set_text_color(*color)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(0, 5, v, ln=False)
+        pdf.cell(0, 5, sanitize(v), ln=False)
 
     # AI Plan
-    pdf.set_y(132)
+    pdf.set_y(136)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.set_text_color(0, 229, 255)
+    pdf.set_text_color(0, 180, 220)
     pdf.cell(0, 8, "AI-GENERATED DEPLOYMENT PLAN (GPT-4o)", ln=True)
-    pdf.set_draw_color(0, 229, 255)
+    pdf.set_draw_color(0, 180, 220)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(3)
 
-    # Strip markdown for PDF
-    clean_plan = re.sub(r'#{1,4}\s*', '', ai_plan)
-    clean_plan = re.sub(r'\*{1,2}(.*?)\*{1,2}', r'\1', clean_plan)
-    clean_plan = re.sub(r'[^\x00-\x7F]+', '', clean_plan)  # ASCII only for fpdf
+    # Clean markdown + unicode from AI plan
+    clean_plan = re.sub(r"#{1,4}\s*", "", ai_plan)
+    clean_plan = re.sub(r"\*{1,2}(.*?)\*{1,2}", r"\1", clean_plan)
+    clean_plan = sanitize(clean_plan)
 
     pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(226, 232, 240)
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_text_color(30, 30, 30)
     pdf.multi_cell(190, 5, clean_plan)
 
     # Similar Events Table
     pdf.ln(4)
+    if pdf.get_y() > 240:
+        pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
-    pdf.set_text_color(0, 229, 255)
+    pdf.set_text_color(0, 180, 220)
     pdf.cell(0, 8, "3 MOST SIMILAR HISTORICAL INCIDENTS", ln=True)
-    pdf.set_draw_color(0, 229, 255)
+    pdf.set_draw_color(0, 180, 220)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(3)
 
-    headers = ["Cause","Zone","Corridor","Closed?","Duration(min)","Priority"]
-    col_widths = [32,30,40,18,28,22]
+    headers    = ["Cause", "Zone", "Corridor", "Closed?", "Duration(min)", "Priority"]
+    col_widths = [32, 30, 42, 18, 28, 20]
     pdf.set_fill_color(26, 37, 64)
-    pdf.set_text_color(0, 229, 255)
+    pdf.set_text_color(0, 180, 220)
     pdf.set_font("Helvetica", "B", 8)
     for h, w in zip(headers, col_widths):
         pdf.cell(w, 7, h, border=1, fill=True)
@@ -388,23 +405,23 @@ def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, sim
     pdf.set_font("Helvetica", "", 8)
     for _, row in similar_events_df.iterrows():
         vals = [
-            str(row.get("event_cause",""))[:14].replace("_"," "),
-            str(row.get("zone",""))[:14],
-            str(row.get("corridor",""))[:18],
+            sanitize(str(row.get("event_cause", ""))[:16].replace("_", " ")),
+            sanitize(str(row.get("zone", ""))[:16]),
+            sanitize(str(row.get("corridor", ""))[:20]),
             "YES" if row.get("requires_road_closure") else "NO",
-            f"{row.get('duration_min',0):.0f}" if pd.notna(row.get("duration_min")) else "N/A",
-            str(row.get("priority",""))[:8],
+            f"{row.get('duration_min', 0):.0f}" if pd.notna(row.get("duration_min")) else "N/A",
+            sanitize(str(row.get("priority", ""))[:8]),
         ]
-        pdf.set_text_color(226, 232, 240)
+        pdf.set_text_color(30, 30, 30)
         for v, w in zip(vals, col_widths):
             pdf.cell(w, 6, v, border=1)
         pdf.ln()
 
     # Footer
-    pdf.set_y(-20)
+    pdf.set_y(-18)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(0, 5, "ASTRAM Event Congestion Intelligence Platform  |  Confidential — For Operational Use Only", align="C")
+    pdf.cell(0, 5, "ASTRAM Event Congestion Intelligence Platform  |  Confidential -- For Operational Use Only", align="C")
 
     buf = io.BytesIO()
     pdf.output(buf)
