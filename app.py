@@ -209,16 +209,33 @@ def find_similar_events(df, event_type, zone, corridor, time_slot, n=3):
         "Road Construction":"construction",
     }
     time_hour_map = {
-        "Early Morning (4–7 AM)":5,"Morning Peak (7–10 AM)":8,
-        "Midday (10 AM–2 PM)":12,"Evening Peak (5–8 PM)":18,
-        "Night (8 PM–12 AM)":20,"Late Night (12–4 AM)":2,
+        "Early Morning (4-7 AM)":5,"Morning Peak (7-10 AM)":8,
+        "Midday (10 AM-2 PM)":12,"Evening Peak (5-8 PM)":18,
+        "Night (8 PM-12 AM)":20,"Late Night (12-4 AM)":2,
     }
     cause = cause_map.get(event_type, "public_event")
     hour  = time_hour_map.get(time_slot, 12)
 
-    sub, matrix, encoders = build_similarity_index(df)
+    cols = ["event_cause","zone","corridor","hour","day_of_week"]
 
-    # Build query vector
+    # Step 1: filter to same cause first for relevant matches
+    cause_df = df[df["event_cause"] == cause].copy()
+    # Fallback: if fewer than n rows, use full dataset
+    if len(cause_df) < n:
+        cause_df = df.copy()
+
+    sub = cause_df[cols + ["requires_road_closure","duration_min","priority"]].dropna(subset=cols).reset_index(drop=True)
+
+    # Step 2: encode and run cosine similarity within the filtered set
+    encoded = sub[cols].copy()
+    encoders = {}
+    for c in ["event_cause","zone","corridor","day_of_week"]:
+        le = LabelEncoder()
+        encoded[c] = le.fit_transform(sub[c].astype(str))
+        encoders[c] = le
+
+    matrix = encoded.astype(float).values
+
     q = {}
     try: q["event_cause"] = encoders["event_cause"].transform([cause])[0]
     except: q["event_cause"] = 0
@@ -405,8 +422,8 @@ def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, sim
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(3)
 
-    headers    = ["Cause", "Zone", "Corridor", "Closed?", "Duration(min)", "Priority"]
-    col_widths = [32, 30, 42, 18, 28, 20]
+    headers    = ["Event Cause", "Zone", "Corridor", "Road Closed", "Duration (min)", "Priority"]
+    col_widths = [38, 30, 44, 20, 28, 20]
     pdf.set_fill_color(26, 37, 64)
     pdf.set_text_color(0, 180, 220)
     pdf.set_font("Helvetica", "B", 8)
@@ -416,12 +433,17 @@ def generate_pdf(event_type, zone, corridor, time_slot, crowd_size, ai_plan, sim
 
     pdf.set_font("Helvetica", "", 8)
     for _, row in similar_events_df.iterrows():
+        dur_val = row.get("duration_min")
+        try:
+            dur_str = f"{float(dur_val):.0f}" if pd.notna(dur_val) else "N/A"
+        except Exception:
+            dur_str = "N/A"
         vals = [
-            sanitize(str(row.get("event_cause", ""))[:16].replace("_", " ")),
-            sanitize(str(row.get("zone", ""))[:16]),
-            sanitize(str(row.get("corridor", ""))[:20]),
+            sanitize(str(row.get("event_cause", "")).replace("_", " ").title()[:20]),
+            sanitize(str(row.get("zone", ""))[:18]),
+            sanitize(str(row.get("corridor", ""))[:22]),
             "YES" if row.get("requires_road_closure") else "NO",
-            f"{row.get('duration_min', 0):.0f}" if pd.notna(row.get("duration_min")) else "N/A",
+            dur_str,
             sanitize(str(row.get("priority", ""))[:8]),
         ]
         pdf.set_text_color(30, 30, 30)
