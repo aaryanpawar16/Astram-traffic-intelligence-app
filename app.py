@@ -717,6 +717,7 @@ with tab3:
     st.plotly_chart(fig, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # TAB 4 — AI EVENT PLANNER  +  FEATURE B + D
 # ══════════════════════════════════════════════════════════════════
 with tab4:
@@ -759,91 +760,121 @@ Be specific with numbers. Reference Bengaluru roads. Keep each section to 4-5 li
             evt_corridor = st.selectbox("Corridor", [""] + sorted(
                 df[df["corridor"]!="Non-corridor"]["corridor"].dropna().unique().tolist()))
             evt_time = st.selectbox("Expected Time", [
-                "","Early Morning (4–7 AM)","Morning Peak (7–10 AM)","Midday (10 AM–2 PM)",
-                "Evening Peak (5–8 PM)","Night (8 PM–12 AM)","Late Night (12–4 AM)",
+                "","Early Morning (4-7 AM)","Morning Peak (7-10 AM)","Midday (10 AM-2 PM)",
+                "Evening Peak (5-8 PM)","Night (8 PM-12 AM)","Late Night (12-4 AM)",
             ])
         with col3:
             crowd_size   = st.text_input("Expected Crowd Size", placeholder="e.g. 5000")
             duration_est = st.text_input("Duration (hours)", placeholder="e.g. 3")
         submitted = st.form_submit_button("⚡ Generate Deployment Plan", use_container_width=True)
 
+    # ── On submit: call AI, store everything in session_state ──────
     if submitted:
         if not evt_type or not evt_zone:
             st.error("Please select at least an Event Type and Zone.")
         elif not OPENAI_API_KEY:
             st.error("OPENAI_API_KEY not found in .env file.")
         else:
-            user_msg = (f"Event Type: {evt_type}\nZone: {evt_zone}\n"
-                        f"Corridor: {evt_corridor or 'Not specified'}\nTime: {evt_time or 'Not specified'}\n"
-                        f"Crowd Size: {crowd_size or 'Not specified'}\nDuration: {duration_est or 'Not specified'} hours\n\n"
-                        "Generate the complete operational traffic management plan.")
-
-            # Run AI + similarity in parallel columns
+            user_msg = (
+                f"Event Type: {evt_type}\nZone: {evt_zone}\n"
+                f"Corridor: {evt_corridor or 'Not specified'}\nTime: {evt_time or 'Not specified'}\n"
+                f"Crowd Size: {crowd_size or 'Not specified'}\nDuration: {duration_est or 'Not specified'} hours\n\n"
+                "Generate the complete operational traffic management plan."
+            )
             with st.spinner("Generating plan with GPT-4o + finding similar incidents..."):
-                ai_result   = call_openai(user_msg, SYSTEM_PROMPT)
+                ai_result              = call_openai(user_msg, SYSTEM_PROMPT)
                 sim_events, sim_scores = find_similar_events(df, evt_type, evt_zone, evt_corridor, evt_time)
-                sim_data    = compute_impact_simulation(df, evt_type)
+                sim_data               = compute_impact_simulation(df, evt_type)
 
             if ai_result.startswith("❌"):
                 st.error(ai_result)
             else:
-                st.success("✅ Plan generated")
-                st.markdown(f"""
-                <div style='background:linear-gradient(90deg,rgba(124,58,237,0.15),rgba(0,229,255,0.05));
-                     border:1px solid #1e2d4a;border-radius:10px;padding:14px 20px;margin-bottom:16px'>
-                  <strong>📋 Event:</strong> {evt_type} &nbsp;·&nbsp;
-                  <strong>Zone:</strong> {evt_zone} &nbsp;·&nbsp;
-                  <strong>Corridor:</strong> {evt_corridor or 'N/A'} &nbsp;·&nbsp;
-                  <strong>Time:</strong> {evt_time or 'N/A'} &nbsp;·&nbsp;
-                  <strong>Crowd:</strong> {crowd_size or 'N/A'}
-                </div>""", unsafe_allow_html=True)
+                # Persist so PDF download doesn't wipe the page
+                st.session_state.update({
+                    "p_ai":       ai_result,
+                    "p_sim_ev":   sim_events,
+                    "p_sim_sc":   sim_scores,
+                    "p_sim_data": sim_data,
+                    "p_type":     evt_type,
+                    "p_zone":     evt_zone,
+                    "p_corridor": evt_corridor,
+                    "p_time":     evt_time,
+                    "p_crowd":    crowd_size,
+                })
 
-                plan_col, similar_col = st.columns([3, 2])
+    # ── Render from session_state (survives PDF button click) ──────
+    if "p_ai" in st.session_state:
+        ai_result  = st.session_state["p_ai"]
+        sim_events = st.session_state["p_sim_ev"]
+        sim_scores = st.session_state["p_sim_sc"]
+        sim_data   = st.session_state["p_sim_data"]
+        s_type     = st.session_state["p_type"]
+        s_zone     = st.session_state["p_zone"]
+        s_corridor = st.session_state["p_corridor"]
+        s_time     = st.session_state["p_time"]
+        s_crowd    = st.session_state["p_crowd"]
 
-                with plan_col:
-                    st.markdown("#### 📋 Deployment Plan")
-                    st.markdown(ai_result)
+        st.success("✅ Plan ready — edit the form above and click Generate to update")
+        st.markdown(
+            f"<div style='background:linear-gradient(90deg,rgba(124,58,237,0.15),rgba(0,229,255,0.05));"
+            f"border:1px solid #1e2d4a;border-radius:10px;padding:14px 20px;margin-bottom:16px'>"
+            f"<strong>Event:</strong> {s_type} &nbsp;·&nbsp;"
+            f"<strong>Zone:</strong> {s_zone} &nbsp;·&nbsp;"
+            f"<strong>Corridor:</strong> {s_corridor or 'N/A'} &nbsp;·&nbsp;"
+            f"<strong>Time:</strong> {s_time or 'N/A'} &nbsp;·&nbsp;"
+            f"<strong>Crowd:</strong> {s_crowd or 'N/A'}</div>",
+            unsafe_allow_html=True,
+        )
 
-                with similar_col:
-                    # ── FEATURE B: SIMILAR EVENTS ──
-                    st.markdown("#### 🔍 Most Similar Past Incidents")
-                    st.caption("Evidence base for this recommendation")
-                    for i, (_, row) in enumerate(sim_events.iterrows()):
-                        closed = "🔴 YES" if row.get("requires_road_closure") else "🟢 NO"
-                        dur    = f"{row['duration_min']:.0f} min" if pd.notna(row.get("duration_min")) else "N/A"
-                        sim_pct = int(sim_scores[i]*100)
-                        st.markdown(f"""
-                        <div class='similar-card'>
-                          <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>
-                            <strong style='color:#10b981;font-size:0.85rem'>#{i+1} Match — {sim_pct}% similar</strong>
-                            <span style='font-size:0.75rem;color:#64748b'>{row.get("priority","N/A")} priority</span>
-                          </div>
-                          <div style='font-size:0.8rem;color:#94a3b8'>
-                            <b>Cause:</b> {str(row.get("event_cause","")).replace("_"," ").title()}<br>
-                            <b>Zone:</b> {row.get("zone","N/A")}<br>
-                            <b>Hour:</b> {int(row.get("hour",0)):02d}:00 &nbsp;·&nbsp; <b>Day:</b> {row.get("day_of_week","N/A")}<br>
-                            <b>Road Closed:</b> {closed} &nbsp;·&nbsp; <b>Duration:</b> {dur}
-                          </div>
-                        </div>""", unsafe_allow_html=True)
+        plan_col, similar_col = st.columns([3, 2])
 
-                st.markdown("---")
+        with plan_col:
+            st.markdown("#### 📋 Deployment Plan")
+            st.markdown(ai_result)
 
-                # ── FEATURE D: PDF REPORT ──
-                st.markdown("#### 📥 Download Official Report")
-                pdf_bytes = generate_pdf(
-                    evt_type, evt_zone, evt_corridor, evt_time,
-                    crowd_size, ai_result, sim_events, sim_data
+        with similar_col:
+            st.markdown("#### 🔍 Most Similar Past Incidents")
+            st.caption("Evidence base for this recommendation")
+            for i, (_, row) in enumerate(sim_events.iterrows()):
+                closed  = "🔴 YES" if row.get("requires_road_closure") else "🟢 NO"
+                d_val   = row.get("duration_min")
+                dur     = f"{float(d_val):.0f} min" if pd.notna(d_val) else "N/A"
+                sim_pct = int(sim_scores[i] * 100)
+                cause   = str(row.get("event_cause", "")).replace("_", " ").title()
+                zone_r  = row.get("zone", "N/A")
+                day_r   = row.get("day_of_week", "N/A")
+                hour_r  = int(row.get("hour", 0))
+                prio_r  = row.get("priority", "N/A")
+                st.markdown(
+                    f"<div class='similar-card'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px'>"
+                    f"<strong style='color:#10b981;font-size:0.85rem'>#{i+1} Match — {sim_pct}% similar</strong>"
+                    f"<span style='font-size:0.75rem;color:#64748b'>{prio_r} priority</span></div>"
+                    f"<div style='font-size:0.8rem;color:#94a3b8'>"
+                    f"<b>Cause:</b> {cause}<br>"
+                    f"<b>Zone:</b> {zone_r}<br>"
+                    f"<b>Hour:</b> {hour_r:02d}:00 &nbsp;·&nbsp; <b>Day:</b> {day_r}<br>"
+                    f"<b>Road Closed:</b> {closed} &nbsp;·&nbsp; <b>Duration:</b> {dur}"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
                 )
-                st.download_button(
-                    label="📄 Download PDF Deployment Report",
-                    data=pdf_bytes,
-                    file_name=f"ASTRAM_Plan_{evt_type.replace(' ','_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-                st.caption("PDF includes event summary, AI plan, similar incidents table, and impact simulation.")
 
-    else:
+        st.markdown("---")
+        st.markdown("#### 📥 Download Official Report")
+        pdf_bytes = generate_pdf(
+            s_type, s_zone, s_corridor, s_time, s_crowd,
+            ai_result, sim_events, sim_data
+        )
+        st.download_button(
+            label="📄 Download PDF Deployment Report",
+            data=pdf_bytes,
+            file_name=f"ASTRAM_Plan_{s_type.replace(' ','_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+        st.caption("PDF includes event summary, AI plan, similar incidents table, and impact simulation.")
+
+    elif not submitted:
         st.info("👆 Fill in event details and click **Generate Deployment Plan**.")
         c1, c2 = st.columns(2)
         with c1:
@@ -861,7 +892,7 @@ Be specific with numbers. Reference Bengaluru roads. Keep each section to 4-5 li
             <p style='font-size:0.85rem;color:#94a3b8'>One-click PDF with event summary, full plan, historical evidence table, and impact simulation for offline use.</p></div>
             """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════
+
 # TAB 5 — FEATURE C: BEFORE/AFTER IMPACT SIMULATOR
 # ══════════════════════════════════════════════════════════════════
 with tab5:
